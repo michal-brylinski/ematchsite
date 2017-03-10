@@ -1,0 +1,374 @@
+# This is a shell archive.  Save it in a file, remove anything before
+# this line, and then unpack it by entering "sh file".  Note, it may
+# create directories; files and directories will be owned by you and
+# have default permissions.
+#
+# This archive contains:
+#
+#	ematchsite_kcombu
+#
+echo x - ematchsite_kcombu
+sed 's/^X//' >ematchsite_kcombu << 'END-of-ematchsite_kcombu'
+X#!/usr/bin/perl -w
+X
+X#===============================================================================
+X#          ______                  _        _    _           
+X#         |  ___ \       _        | |      | |  (_)_         
+X#     ____| | _ | | ____| |_  ____| | _     \ \  _| |_  ____ 
+X#    / _  ) || || |/ _  |  _)/ ___) || \     \ \| |  _)/ _  )
+X#   ( (/ /| || || ( ( | | |_( (___| | | |_____) ) | |_( (/ / 
+X#    \____)_||_||_|\_||_|\___)____)_| |_(______/|_|\___)____)
+X#
+X#
+X#   eMatchSite - sequence order independent binding site alignment
+X#
+X#   Computational Systems Biology Group
+X#   Department of Biological Sciences
+X#   Center for Computation & Technology
+X#   Louisiana State University
+X#   407 Choppin Hall, Baton Rouge, LA 70803, USA
+X#
+X#   http://www.brylinski.org
+X#
+X#   Report bugs to michal@brylinski.org
+X#
+X#   Copyright 2016 Michal Brylinski
+X#
+X#   This file is part of eMatchSite.
+X#
+X#   eMatchSite is free software: you can redistribute it and/or modify
+X#   it under the terms of the GNU General Public License as published by
+X#   the Free Software Foundation, either version 3 of the License, or
+X#   (at your option) any later version.
+X#
+X#   eMatchSite is distributed in the hope that it will be useful,
+X#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+X#   GNU General Public License for more details.
+X#
+X#   You should have received a copy of the GNU General Public License
+X#   along with eMatchSite. If not, see <http://www.gnu.org/licenses/>.
+X#
+X#===============================================================================
+X 
+X use strict;
+X use File::Slurp;
+X use File::Path;
+X use File::Temp qw/ tempfile tempdir /;
+X use Cwd;
+X use Benchmark;
+X 
+X local $| = 1;
+X 
+X print "------------------------------------------------------------\n";
+X print "                     ematchsite_kcombu\n";
+X print "                        version 1.1\n";
+X print "           pairwise group alignments with kcombu\n\n";
+X print "       report bugs and issues to michal\@brylinski.org\n";
+X print "------------------------------------------------------------\n\n";
+X 
+X die "ET_LKCOMBU is not set\n" if !( $ENV{'ET_LKCOMBU'} );
+X 
+X my $lkcombu = $ENV{'ET_LKCOMBU'};
+X 
+X die "Could not find $lkcombu\n" if ( !( -e $lkcombu ) );
+X 
+X if ($#ARGV < 4)
+X {
+X  print "ematchsite_kcombu -ligandsA <eFindSite ligands A>\n";
+X  print "                  -ligandsB <eFindSite ligands B>\n";
+X  print "                  -numberA <eFindSite pocket number A, default 1>\n";
+X  print "                  -numberB <eFindSite pocket number B, default 1>\n";
+X  print "                  -o <output name>\n";
+X  die "\n";
+X }
+X 
+X my $fsdf1 = '';
+X my $fsdf2 = '';
+X my $fnum1 = 1;
+X my $fnum2 = 1;
+X my $fout1 = '';
+X 
+X for ( my $i = 0; $i <= $#ARGV; $i++ )
+X {
+X  $fsdf1 = $ARGV[$i+1] if ( $ARGV[$i] eq '-ligandsA' );
+X  $fsdf2 = $ARGV[$i+1] if ( $ARGV[$i] eq '-ligandsB' );
+X  $fnum1 = $ARGV[$i+1] if ( $ARGV[$i] eq '-numberA' );
+X  $fnum2 = $ARGV[$i+1] if ( $ARGV[$i] eq '-numberB' );
+X  $fout1 = $ARGV[$i+1] if ( $ARGV[$i] eq '-o' );
+X }
+X 
+X die "Provide eFindSite ligands A\n" if ( !( -e $fsdf1 ) or !length($fsdf1) );
+X die "Provide eFindSite ligands B\n" if ( !( -e $fsdf2 ) or !length($fsdf2) );
+X die "Provide output name\n" if ( !length($fout1) );
+X 
+X my $bt0 = Benchmark->new;
+X 
+X my $dir1 = getcwd();
+X 
+X my $dir2 = tempdir( CLEANUP => 1 );
+X 
+X printf("Tempdir created: %s\n\n", $dir2);
+X 
+X my ($fh1, $tmpfil1) = tempfile( DIR => $dir2, UNLINK => 1);
+X 
+X my @tt01 = split(/\//, $tmpfil1);
+X 
+X my $tmpfil1b = pop(@tt01);
+X 
+X 
+X # prepare data ----------------------------------
+X 
+X my @sdf1 = read_file($fsdf1); chomp(@sdf1);
+X 
+X my @sdf2 = read_file($fsdf2); chomp(@sdf2);
+X 
+X mkpath("$dir2/groupA");
+X 
+X mkpath("$dir2/groupB");
+X 
+X my @lst1 = ();
+X my @lst2 = ();
+X 
+X my @sdf3 = ();
+X 
+X foreach my $wsdf1 (@sdf1)
+X {
+X  push(@sdf3, $wsdf1);
+X  
+X  if ( $wsdf1 eq '$$$$' )
+X  {
+X   my $nsdf3 = @sdf3;
+X   
+X   my $tt1 = 0;
+X   my $tt2 = 0;
+X   
+X   for ( my $xa = 0; $xa < $nsdf3 - 1; $xa++ )
+X   {
+X    $tt1 = $sdf3[$xa+1] if ( $sdf3[$xa] =~ /EFINDSITE_POCKET/ );
+X    $tt2 = $sdf3[$xa+1] if ( $sdf3[$xa] =~ /MOLID/ );
+X   }
+X   
+X   if ( $tt1 == $fnum1 and length($tt2) )
+X   {
+X    $sdf3[0] = $tt2;
+X    
+X    my $w2 = 1;
+X    
+X    my @tmp1 = ();
+X    
+X    foreach my $wsdf3 (@sdf3)
+X    {
+X     push(@tmp1, "$wsdf3\n") if ( $w2 );
+X     
+X     $w2 = 0 if ( $wsdf3 =~ /M\ \ END/ or $wsdf3 =~ /M\ END/ );
+X    }
+X    
+X    push(@tmp1, '$$$$'."\n");
+X    
+X    write_file("$dir2/groupA/$tt2.sdf", @tmp1);
+X    
+X    push(@lst1, $tt2);
+X   }
+X   
+X   @sdf3 = ();
+X  }
+X }
+X 
+X @sdf3 = ();
+X 
+X foreach my $wsdf2 (@sdf2)
+X {
+X  push(@sdf3, $wsdf2);
+X  
+X  if ( $wsdf2 eq '$$$$' )
+X  {
+X   my $nsdf3 = @sdf3;
+X   
+X   my $tt1 = 0;
+X   my $tt2 = 0;
+X   
+X   for ( my $xa = 0; $xa < $nsdf3 - 1; $xa++ )
+X   {
+X    $tt1 = $sdf3[$xa+1] if ( $sdf3[$xa] =~ /EFINDSITE_POCKET/ );
+X    $tt2 = $sdf3[$xa+1] if ( $sdf3[$xa] =~ /MOLID/ );
+X   }
+X   
+X   if ( $tt1 == $fnum2 and length($tt2) )
+X   {
+X    $sdf3[0] = $tt2;
+X    
+X    my $w2 = 1;
+X    
+X    my @tmp1 = ();
+X    
+X    foreach my $wsdf3 (@sdf3)
+X    {
+X     push(@tmp1, "$wsdf3\n") if ( $w2 );
+X     
+X     $w2 = 0 if ( $wsdf3 =~ /M\ \ END/ or $wsdf3 =~ /M\ END/ );
+X    }
+X    
+X    push(@tmp1, '$$$$'."\n");
+X    
+X    write_file("$dir2/groupB/$tt2.sdf", @tmp1);
+X    
+X    push(@lst2, $tt2);
+X   }
+X   
+X   @sdf3 = ();
+X  }
+X }
+X 
+X my $nlst1 = @lst1;
+X my $nlst2 = @lst2;
+X 
+X my %out1 = ();
+X 
+X foreach my $wlst1 (@lst1)
+X {
+X  foreach my $wlst2 (@lst2)
+X  {
+X   $out1{"$wlst1:$wlst2"} = "ALN $wlst1 $wlst2 0.000   0";
+X  }
+X }
+X 
+X 
+X # run lkcombu -----------------------------------
+X 
+X print "Calculating $nlst1".'x'."$nlst1 alignments ... ";
+X 
+X my %tc1 = ();
+X my %id1 = ();
+X 
+X chdir($dir2);
+X 
+X foreach my $wlst1 (@lst1)
+X {
+X  open (LKC, "$lkcombu -M S -Q groupA/$wlst1.sdf -idl groupB -fL S -osc $tmpfil1b 2>&1 |") || die "Cannot execute $lkcombu -M S -Q groupA/$wlst1.sdf -idl groupB -fL S -osc $tmpfil1b 2>&1\n";
+X   my @dat1=<LKC>;
+X   chomp(@dat1);
+X  close (LKC);
+X  
+X  my @dat2 = read_file($tmpfil1b); chomp(@dat2);
+X  
+X  unlink($tmpfil1b) if ( -e $tmpfil1b );
+X  
+X  my $w1 = 0;
+X  
+X  foreach my $wdat2 (@dat2)
+X  {
+X   if ( length($wdat2) )
+X   {
+X    if ( substr($wdat2, 0, 1) ne '#' )
+X    {
+X     if ( $w1 == 1 and !( $wdat2 =~ /SIMILAR_MOLECULE_LIST/ ) and !( $wdat2 =~ /ATOM_MATCHING/ ) )
+X     {
+X      my $dat3 = $wdat2;
+X      
+X      while ( $dat3 =~ /\t/ ) { $dat3 =~ s/\t/\ /g; }
+X      while ( $dat3 =~ /\ \ / ) { $dat3 =~ s/\ \ /\ /g; }
+X      
+X      substr($dat3,  0, 1) = '' if ( substr($dat3,  0, 1) eq ' ' );
+X      substr($dat3, -1, 1) = '' if ( substr($dat3, -1, 1) eq ' ' );
+X      
+X      my @dat4 = split(/\ /, $dat3);
+X      
+X      $tc1{$dat4[0]} = $dat4[5];
+X      
+X      $dat4[4] =~ s/\.sdf//g;
+X      
+X      $id1{$dat4[0]} = $dat4[4];
+X     }
+X     
+X     $w1 = 1 if ( $wdat2 =~ /SIMILAR_MOLECULE_LIST/ );
+X     $w1 = 2 if ( $wdat2 =~ /ATOM_MATCHING/ );
+X    }
+X   }
+X  }
+X  
+X  $w1 = 0;
+X  
+X  foreach my $wdat2 (@dat2)
+X  {
+X   if ( length($wdat2) )
+X   {
+X    if ( substr($wdat2, 0, 1) ne '#' )
+X    {
+X     if ( $w1 == 2 and !( $wdat2 =~ /SIMILAR_MOLECULE_LIST/ ) and !( $wdat2 =~ /ATOM_MATCHING/ ) )
+X     {
+X      my $dat3 = $wdat2;
+X      
+X      while ( $dat3 =~ /\t/ ) { $dat3 =~ s/\t/\ /g; }
+X      while ( $dat3 =~ /\ \ / ) { $dat3 =~ s/\ \ /\ /g; }
+X      
+X      substr($dat3,  0, 1) = '' if ( substr($dat3,  0, 1) eq ' ' );
+X      substr($dat3, -1, 1) = '' if ( substr($dat3, -1, 1) eq ' ' );
+X      
+X      my @dat4 = split(/\|/, $dat3);
+X      
+X      my $dat5 = shift(@dat4);
+X      
+X      while ( $dat5 =~ /\ / ) { $dat5 =~ s/\ //g; }
+X      
+X      $dat5 *= 1;
+X      
+X      my $ndat4 = @dat4;
+X      
+X      if ( exists $tc1{$dat5} and exists $id1{$dat5} )
+X      {
+X       my $dat6 = sprintf("ALN %s %s %5.3f %3d", $wlst1, $id1{$dat5}, $tc1{$dat5}, $ndat4);
+X       
+X       foreach my $wdat4 (@dat4)
+X       {
+X        $dat6 .= ' '.$wdat4;
+X       }
+X       
+X       $out1{$wlst1.':'.$id1{$dat5}} = $dat6;
+X      }
+X     }
+X     
+X     $w1 = 1 if ( $wdat2 =~ /SIMILAR_MOLECULE_LIST/ );
+X     $w1 = 2 if ( $wdat2 =~ /ATOM_MATCHING/ );
+X    }
+X   }
+X  }
+X  
+X  unlink("groupA/$wlst1.sdf") if ( -e "groupA/$wlst1.sdf" );
+X }
+X 
+X rmtree("$dir2/groupA");
+X 
+X rmtree("$dir2/groupB");
+X 
+X chdir($dir1);
+X 
+X my @out2 = ();
+X 
+X my $n1 = 0;
+X 
+X my $n2 = $nlst1 * $nlst2;
+X 
+X foreach my $wout1 ( keys %out1 )
+X {
+X  push(@out2, "$out1{$wout1}\n");
+X  
+X  $n1++;
+X }
+X 
+X write_file($fout1, @out2);
+X 
+X print "done\n\n";
+X 
+X print "$n1/$n2 alignments written to $fout1\n\n";
+X 
+X my $bt1 = Benchmark->new;
+X 
+X printf("------------------------------------------------------------\n");
+X printf("Walltime: %s\n", timestr(timediff($bt1, $bt0)));
+X printf("------------------------------------------------------------\n");
+X 
+X exit(0);
+END-of-ematchsite_kcombu
+exit
+
